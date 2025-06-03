@@ -6,14 +6,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Play, Download, Upload, Scissors, MessageSquare, FileVideo } from 'lucide-react';
+import { Play, Download, Upload, Scissors, MessageSquare, FileVideo, LogOut, User } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import AuthForm from '@/components/auth/AuthForm';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 const YouTubeClipper = () => {
+  const { user, loading, signOut, isAuthenticated } = useAuth();
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [userPrompt, setUserPrompt] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStep, setProcessingStep] = useState(0);
   const [processedVideoUrl, setProcessedVideoUrl] = useState('');
+  const { toast } = useToast();
 
   const processingSteps = [
     { icon: Download, label: "Downloading video", description: "Fetching from YouTube..." },
@@ -23,20 +29,63 @@ const YouTubeClipper = () => {
   ];
 
   const handleProcess = async () => {
-    if (!youtubeUrl || !userPrompt) return;
+    if (!youtubeUrl || !userPrompt || !user) return;
     
     setIsProcessing(true);
     setProcessingStep(0);
     
-    // Simulate processing steps
-    for (let i = 0; i < processingSteps.length; i++) {
-      setProcessingStep(i);
-      await new Promise(resolve => setTimeout(resolve, 2000));
+    try {
+      // Create a video job in the database
+      const { data: jobData, error: jobError } = await supabase
+        .from('video_jobs')
+        .insert({
+          user_id: user.id,
+          youtube_url: youtubeUrl,
+          user_prompt: userPrompt,
+          status: 'processing'
+        })
+        .select()
+        .single();
+
+      if (jobError) {
+        throw jobError;
+      }
+
+      console.log('Created video job:', jobData);
+
+      // Simulate processing steps for now
+      for (let i = 0; i < processingSteps.length; i++) {
+        setProcessingStep(i);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      
+      // Update job status to completed
+      await supabase
+        .from('video_jobs')
+        .update({ 
+          status: 'completed',
+          output_video_url: '/placeholder-video.mp4'
+        })
+        .eq('id', jobData.id);
+      
+      // Simulate completion
+      setProcessedVideoUrl('/placeholder-video.mp4');
+      
+      toast({
+        title: "Video Processing Complete!",
+        description: "Your AI-generated clips are ready.",
+      });
+      
+    } catch (error) {
+      console.error('Error processing video:', error);
+      toast({
+        variant: "destructive",
+        title: "Processing Failed",
+        description: "There was an error processing your video. Please try again.",
+      });
+    } finally {
+      setIsProcessing(false);
     }
-    
-    // Simulate completion
-    setProcessedVideoUrl('/placeholder-video.mp4');
-    setIsProcessing(false);
   };
 
   const isValidYouTubeUrl = (url: string) => {
@@ -44,14 +93,52 @@ const YouTubeClipper = () => {
     return youtubeRegex.test(url);
   };
 
+  const handleAuthSuccess = () => {
+    // This will trigger a re-render when auth state changes
+    console.log('Authentication successful');
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <AuthForm onAuthSuccess={handleAuthSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100">
       <div className="container mx-auto px-4 py-8">
-        {/* Header */}
+        {/* Header with User Info */}
         <div className="text-center mb-12">
-          <div className="flex items-center justify-center mb-4">
-            <div className="bg-gradient-to-r from-purple-600 to-blue-600 p-3 rounded-full">
-              <Scissors className="h-8 w-8 text-white" />
+          <div className="flex items-center justify-between mb-4">
+            <div></div>
+            <div className="flex items-center justify-center">
+              <div className="bg-gradient-to-r from-purple-600 to-blue-600 p-3 rounded-full">
+                <Scissors className="h-8 w-8 text-white" />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 bg-white/50 px-3 py-2 rounded-full">
+                <User className="h-4 w-4 text-gray-600" />
+                <span className="text-sm text-gray-600">{user?.email}</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={signOut}
+                className="bg-white/50"
+              >
+                <LogOut className="h-4 w-4 mr-2" />
+                Sign Out
+              </Button>
             </div>
           </div>
           <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-4">
@@ -205,7 +292,15 @@ const YouTubeClipper = () => {
                     <Download className="h-4 w-4 mr-2" />
                     Download Video
                   </Button>
-                  <Button variant="outline" className="flex-1">
+                  <Button 
+                    variant="outline" 
+                    className="flex-1"
+                    onClick={() => {
+                      setYoutubeUrl('');
+                      setUserPrompt('');
+                      setProcessedVideoUrl('');
+                    }}
+                  >
                     Create New Clips
                   </Button>
                 </div>
