@@ -1,59 +1,52 @@
-import yt_dlp
-import whisper
-import tempfile
-import os
-import re
-import ast
-import subprocess
+from flask import Flask, request, send_file, jsonify
+import yt_dlp, whisper, tempfile, os, re, ast
 from openai import OpenAI
 from moviepy import *
+from flask_cors import CORS
 
-# Create a temp folder that works locally and online
-save_folder = tempfile.mkdtemp()
-video_path = os.path.join(save_folder, "final.mp4")
-output_path = os.path.join(save_folder, "return.mp4")
+app = Flask(__name__)
 
-def download_youtube_video(youtube_url, path):
-    try:
-        ydl_opts = {
-            'format': 'bestvideo+bestaudio/best',
-            'outtmpl': path,
-            'merge_output_format': 'mp4'
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([youtube_url])
-        print(f"Video downloaded successfully to {path}")
-    except Exception as e:
-        print(f"An error occurred: {e}")
 
-def transcribe(path):
-    print("Transcribing the video...")
+
+CORS(app)
+
+
+
+@app.route('/clip', methods=['POST'])
+def clip_video():
+    print("✅ /clip endpoint was called!")
+    data = request.get_json()
+    youtube_url = data.get('youtube_url')
+    user_prompt = data.get('user_prompt')
+    
+    if not youtube_url or not user_prompt:
+        return jsonify({"error": "Missing required fields"}), 400
+
+    save_folder = tempfile.mkdtemp()
+    video_path = os.path.join(save_folder, "final.mp4")
+    output_path = os.path.join(save_folder, "return.mp4")
+
+    # Download YouTube video
+    ydl_opts = {
+        'format': 'bestvideo+bestaudio/best',
+        'outtmpl': video_path,
+        'merge_output_format': 'mp4'
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([youtube_url])
+
+    # Transcribe
     model = whisper.load_model("base")
-    result = model.transcribe(path, language="en")
+    result = model.transcribe(video_path, language="en")
+    transcript = [(seg['text'], seg['start'], seg['end']) for seg in result['segments']]
 
-    transcript = []
-    for segment in result['segments']:
-        transcript.append((segment['text'], segment['start'], segment['end']))
-
-    print("Transcription completed.")
-    return transcript
-
-youtube_url = input("Enter the YouTube video URL: ")
-download_youtube_video(youtube_url, video_path)
-transcript = transcribe(video_path)
-
-def request():# GPT-4o request
-    key = "key here"
-    user_prompt = input("What part of the video do you want to find?")
-
+    # GPT Prompt
     prompt = f"""
     Here is the transcript of the video: {transcript}, follow the instructions given here: {user_prompt}
     """
-
-    client = OpenAI(api_key=key)
-    MODEL = "gpt-4o"
+    client = OpenAI(api_key="sk-proj-...")
     completion = client.chat.completions.create(
-        model=MODEL,
+        model="gpt-4o",
         messages=[
             {"role": "system", "content": (
                 "You are a video clipping assistant. "
@@ -64,26 +57,16 @@ def request():# GPT-4o request
         ]
     )
 
-    # Extract timestamps
     match = re.search(r"\[\s*{.*?}\s*\]", completion.choices[0].message.content, re.DOTALL)
     if not match:
-        raise ValueError("No valid timestamp list found in GPT response. GPT said:\n" + completion.choices[0].message.content)
+        return jsonify({"error": "Invalid GPT response"}), 500
 
     timestamps = ast.literal_eval(match.group(0))
-    print(f"Clipping timestamps: {timestamps}")
 
-    # Clip and generate output video
+    # Clip video
     with VideoFileClip(video_path) as clip:
         subclips = [clip.subclipped(t['start'], t['end']) for t in timestamps]
         final_clip = concatenate_videoclips(subclips, method="chain")
         final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac")
 
-    # Optionally open video
-    subprocess.run(["open", output_path])  # Mac only; skip or replace for web
-
-    # Optional: remove the original video file if needed
-    os.remove(video_path)
-
-    return output_path
-
-output_video = request()
+    return send_file(output_path, as_attachment=True)
