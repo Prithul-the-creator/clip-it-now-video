@@ -58,18 +58,27 @@ const YouTubeClipper = () => {
         setProcessingStep(i);
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
-      
+
+      const response = await fetch('http://localhost:5000/clip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ youtube_url: youtubeUrl, user_prompt: userPrompt })
+      });
+
+      if (!response.ok) {
+        throw new Error('Video processing failed');
+      }
+
+      const blob = await response.blob();
+      const videoUrl = URL.createObjectURL(blob);
+
       // Update job status to completed
       await supabase
         .from('video_jobs')
-        .update({ 
-          status: 'completed',
-          output_video_url: '/placeholder-video.mp4'
-        })
+        .update({ status: 'completed' })
         .eq('id', jobData.id);
-      
-      // Simulate completion
-      setProcessedVideoUrl('/placeholder-video.mp4');
+
+      setProcessedVideoUrl(videoUrl);
       
       toast({
         title: "Video Processing Complete!",
