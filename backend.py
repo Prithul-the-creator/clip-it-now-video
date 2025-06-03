@@ -1,7 +1,7 @@
 from flask import Flask, request, send_file, jsonify
 import yt_dlp, whisper, tempfile, os, re, ast
 from openai import OpenAI
-from moviepy import *
+from moviepy.editor import VideoFileClip, concatenate_videoclips
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -70,3 +70,7 @@ def clip_video():
         final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac")
 
     return send_file(output_path, as_attachment=True)
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
