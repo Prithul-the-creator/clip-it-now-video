@@ -1,7 +1,7 @@
 from flask import Flask, request, send_file, jsonify
 import yt_dlp, whisper, tempfile, os, re, ast
 from openai import OpenAI
-from moviepy.editor import VideoFileClip, concatenate_videoclips
+from moviepy import *
 from flask_cors import CORS
 
 app = Flask(__name__)
